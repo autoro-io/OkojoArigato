@@ -1,0 +1,697 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Okojo Arigato</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!-- なんとなく綺麗なレイアウトにする -->
+    <link rel="stylesheet" href="https://cdn.simplecss.org/simple.min.css" />
+    <!-- web3.js を読み込む -->
+    <script src="https://cdn.jsdelivr.net/npm/web3@1.9.0/dist/web3.min.js"></script>
+  </head>
+  <body>
+    <!-- Login 前のみ表示 -->
+    <button id="connectBtn" onclick="login()">Connect Wallet</button>
+
+    <!-- Login 後 -->
+    <div id="loggedIn" style="display: none">
+      <!-- アカウントアドレス表示部 -->
+      <div>Account: <span id="accountAddress"></span></div>
+
+      <!-- OKJC (ERC20) 残高表示部 -->
+      <div>OKJC Balance: <span id="okojoBalance"></span></div>
+
+      <!-- OKJC (ERC20) 承認額表示部、承認金額変更 -->
+      <div>
+        Approved OKJC: <span id="approvedOkojo"></span>
+        <input id="approveAmount" type="number" />
+        <button
+          onclick="approveOkojo(document.getElementById('approveAmount').value)"
+        >
+          Approve
+        </button>
+      </div>
+
+      <!-- OKJC (ERC20) ありがとう送信部 -->
+      <div>
+        Send Arigato:
+        <input id="sendTo" placeholder="To Address" />
+        <input id="sendAmount" type="number" placeholder="Amount" />
+        <input id="sendMessage" placeholder="Message" />
+        <button
+          onclick="sendArigato(document.getElementById('sendTo').value, document.getElementById('sendAmount').value, document.getElementById('sendMessage').value)"
+        >
+          Send
+        </button>
+      </div>
+
+      <!-- OKJC (ERC20) ありがとう受け取り一覧部（テーブル） -->
+      <table id="arigatoList">
+        <tr>
+          <th>From</th>
+          <th>Amount</th>
+          <th>Message</th>
+        </tr>
+      </table>
+    </div>
+
+    <script type="text/javascript">
+      const MAX_BLOCKS=999;
+      const OKJO_TOKEN_ADDRESS = "0x63F2df9F6bB880986a35e190Aba9221eC884DfF0"; // OKJCのトークンアドレスを指定してください。
+      const OKJO_ARIGATO_ADDRESS = "0x78220CB4eD2aEb0312496f51F496ADD3605E0243"; // OkojoArigatoのコントラクトアドレスを指定してください。
+      const OKJO_ABI = [
+        {
+          inputs: [],
+          stateMutability: "nonpayable",
+          type: "constructor",
+        },
+        {
+          anonymous: false,
+          inputs: [
+            {
+              indexed: true,
+              internalType: "address",
+              name: "owner",
+              type: "address",
+            },
+            {
+              indexed: true,
+              internalType: "address",
+              name: "spender",
+              type: "address",
+            },
+            {
+              indexed: false,
+              internalType: "uint256",
+              name: "value",
+              type: "uint256",
+            },
+          ],
+          name: "Approval",
+          type: "event",
+        },
+        {
+          anonymous: false,
+          inputs: [
+            {
+              indexed: true,
+              internalType: "address",
+              name: "previousOwner",
+              type: "address",
+            },
+            {
+              indexed: true,
+              internalType: "address",
+              name: "newOwner",
+              type: "address",
+            },
+          ],
+          name: "OwnershipTransferred",
+          type: "event",
+        },
+        {
+          anonymous: false,
+          inputs: [
+            {
+              indexed: true,
+              internalType: "address",
+              name: "from",
+              type: "address",
+            },
+            {
+              indexed: true,
+              internalType: "address",
+              name: "to",
+              type: "address",
+            },
+            {
+              indexed: false,
+              internalType: "uint256",
+              name: "value",
+              type: "uint256",
+            },
+          ],
+          name: "Transfer",
+          type: "event",
+        },
+        {
+          inputs: [
+            {
+              internalType: "address",
+              name: "owner",
+              type: "address",
+            },
+            {
+              internalType: "address",
+              name: "spender",
+              type: "address",
+            },
+          ],
+          name: "allowance",
+          outputs: [
+            {
+              internalType: "uint256",
+              name: "",
+              type: "uint256",
+            },
+          ],
+          stateMutability: "view",
+          type: "function",
+        },
+        {
+          inputs: [
+            {
+              internalType: "address",
+              name: "spender",
+              type: "address",
+            },
+            {
+              internalType: "uint256",
+              name: "amount",
+              type: "uint256",
+            },
+          ],
+          name: "approve",
+          outputs: [
+            {
+              internalType: "bool",
+              name: "",
+              type: "bool",
+            },
+          ],
+          stateMutability: "nonpayable",
+          type: "function",
+        },
+        {
+          inputs: [
+            {
+              internalType: "address",
+              name: "account",
+              type: "address",
+            },
+          ],
+          name: "balanceOf",
+          outputs: [
+            {
+              internalType: "uint256",
+              name: "",
+              type: "uint256",
+            },
+          ],
+          stateMutability: "view",
+          type: "function",
+        },
+        {
+          inputs: [],
+          name: "decimals",
+          outputs: [
+            {
+              internalType: "uint8",
+              name: "",
+              type: "uint8",
+            },
+          ],
+          stateMutability: "view",
+          type: "function",
+        },
+        {
+          inputs: [
+            {
+              internalType: "address",
+              name: "spender",
+              type: "address",
+            },
+            {
+              internalType: "uint256",
+              name: "subtractedValue",
+              type: "uint256",
+            },
+          ],
+          name: "decreaseAllowance",
+          outputs: [
+            {
+              internalType: "bool",
+              name: "",
+              type: "bool",
+            },
+          ],
+          stateMutability: "nonpayable",
+          type: "function",
+        },
+        {
+          inputs: [
+            {
+              internalType: "address",
+              name: "spender",
+              type: "address",
+            },
+            {
+              internalType: "uint256",
+              name: "addedValue",
+              type: "uint256",
+            },
+          ],
+          name: "increaseAllowance",
+          outputs: [
+            {
+              internalType: "bool",
+              name: "",
+              type: "bool",
+            },
+          ],
+          stateMutability: "nonpayable",
+          type: "function",
+        },
+        {
+          inputs: [
+            {
+              internalType: "address",
+              name: "to",
+              type: "address",
+            },
+            {
+              internalType: "uint256",
+              name: "amount",
+              type: "uint256",
+            },
+          ],
+          name: "mint",
+          outputs: [],
+          stateMutability: "nonpayable",
+          type: "function",
+        },
+        {
+          inputs: [],
+          name: "name",
+          outputs: [
+            {
+              internalType: "string",
+              name: "",
+              type: "string",
+            },
+          ],
+          stateMutability: "view",
+          type: "function",
+        },
+        {
+          inputs: [],
+          name: "owner",
+          outputs: [
+            {
+              internalType: "address",
+              name: "",
+              type: "address",
+            },
+          ],
+          stateMutability: "view",
+          type: "function",
+        },
+        {
+          inputs: [],
+          name: "renounceOwnership",
+          outputs: [],
+          stateMutability: "nonpayable",
+          type: "function",
+        },
+        {
+          inputs: [],
+          name: "symbol",
+          outputs: [
+            {
+              internalType: "string",
+              name: "",
+              type: "string",
+            },
+          ],
+          stateMutability: "view",
+          type: "function",
+        },
+        {
+          inputs: [],
+          name: "totalSupply",
+          outputs: [
+            {
+              internalType: "uint256",
+              name: "",
+              type: "uint256",
+            },
+          ],
+          stateMutability: "view",
+          type: "function",
+        },
+        {
+          inputs: [
+            {
+              internalType: "address",
+              name: "to",
+              type: "address",
+            },
+            {
+              internalType: "uint256",
+              name: "amount",
+              type: "uint256",
+            },
+          ],
+          name: "transfer",
+          outputs: [
+            {
+              internalType: "bool",
+              name: "",
+              type: "bool",
+            },
+          ],
+          stateMutability: "nonpayable",
+          type: "function",
+        },
+        {
+          inputs: [
+            {
+              internalType: "address",
+              name: "from",
+              type: "address",
+            },
+            {
+              internalType: "address",
+              name: "to",
+              type: "address",
+            },
+            {
+              internalType: "uint256",
+              name: "amount",
+              type: "uint256",
+            },
+          ],
+          name: "transferFrom",
+          outputs: [
+            {
+              internalType: "bool",
+              name: "",
+              type: "bool",
+            },
+          ],
+          stateMutability: "nonpayable",
+          type: "function",
+        },
+        {
+          inputs: [
+            {
+              internalType: "address",
+              name: "newOwner",
+              type: "address",
+            },
+          ],
+          name: "transferOwnership",
+          outputs: [],
+          stateMutability: "nonpayable",
+          type: "function",
+        },
+      ]; // OKJCのABIを指定してください。
+      const OKJO_ARIGATO_ABI = [
+        {
+          inputs: [
+            {
+              internalType: "address",
+              name: "okojoAddress",
+              type: "address",
+            },
+          ],
+          stateMutability: "nonpayable",
+          type: "constructor",
+        },
+        {
+          anonymous: false,
+          inputs: [
+            {
+              indexed: true,
+              internalType: "address",
+              name: "sender",
+              type: "address",
+            },
+            {
+              indexed: true,
+              internalType: "address",
+              name: "receiver",
+              type: "address",
+            },
+            {
+              indexed: false,
+              internalType: "uint256",
+              name: "amount",
+              type: "uint256",
+            },
+            {
+              indexed: false,
+              internalType: "string",
+              name: "comment",
+              type: "string",
+            },
+          ],
+          name: "Arigato",
+          type: "event",
+        },
+        {
+          inputs: [],
+          name: "okojoCoin",
+          outputs: [
+            {
+              internalType: "contract IERC20",
+              name: "",
+              type: "address",
+            },
+          ],
+          stateMutability: "view",
+          type: "function",
+        },
+        {
+          inputs: [
+            {
+              internalType: "string",
+              name: "comment",
+              type: "string",
+            },
+            {
+              internalType: "address",
+              name: "to",
+              type: "address",
+            },
+            {
+              internalType: "uint256",
+              name: "amount",
+              type: "uint256",
+            },
+          ],
+          name: "sendArigato",
+          outputs: [
+            {
+              internalType: "bool",
+              name: "",
+              type: "bool",
+            },
+          ],
+          stateMutability: "nonpayable",
+          type: "function",
+        },
+      ]; // OkojoArigatoのABIを指定してください。
+      let web3;
+      let okjoTokenContract;
+      let okjoArigatoContract;
+      let userAddress;
+
+      // 認証状態
+      async function getLoginStatus() {
+        if (window.ethereum) {
+          try {
+            web3 = new Web3(window.ethereum);
+            await window.ethereum.request({ method: "eth_requestAccounts" });
+            okjoTokenContract = new web3.eth.Contract(
+              OKJO_ABI,
+              OKJO_TOKEN_ADDRESS
+            );
+            okjoArigatoContract = new web3.eth.Contract(
+              OKJO_ARIGATO_ABI,
+              OKJO_ARIGATO_ADDRESS
+            );
+            const accounts = await getAccounts();
+            if (accounts.length > 0) {
+              userAddress = accounts[0];
+              return true;
+            }
+          } catch (error) {
+            console.error("Error connecting wallet:", error);
+          }
+        }
+        return false;
+      }
+
+      // ログインする
+      async function login() {
+        if (await getLoginStatus()) {
+          document.getElementById("connectBtn").style.display = "none";
+          document.getElementById("loggedIn").style.display = "block";
+          document.getElementById("accountAddress").innerText = userAddress;
+          await updateUI();
+        } else {
+          alert("Please install MetaMask or connect your wallet.");
+        }
+      }
+
+      async function getMaxFromBlock() {
+        const blockNumber = await web3.eth.getBlockNumber();
+        let fromBlock = 0;
+        if (blockNumber > MAX_BLOCKS){
+          fromBlock = blockNumber - MAX_BLOCKS;
+        }
+        return fromBlock;
+      }
+
+      async function setupEventListener() {
+        okjoArigatoContract.events
+          .Arigato(
+            {
+              filter: { receiver: userAddress }
+            }
+          )
+          .on("change", async (event) => {
+            console.log("Arigato on change", event);
+            await updateUI();
+          })
+          .on("data", async (event) => {
+            console.log("Arigato on data", event);
+            await updateUI();
+          })
+          .on("connected", async (subscriptionId) => {
+            console.log("Arigato on connected", subscriptionId);
+          })
+          .on("error", console.error);
+      }
+
+      // UIを更新する
+      async function updateUI() {
+        await getOkojoBalance();
+        await getAllowance();
+        await getArigatoes();
+      }
+
+      // 委譲可能な残高を取得する
+      async function getAllowance() {
+        try {
+          const allowance = await okjoTokenContract.methods
+            .allowance(userAddress, OKJO_ARIGATO_ADDRESS)
+            .call();
+          document.querySelector("#approveAmount").value = web3.utils.fromWei(
+            allowance,
+            "ether"
+          );
+        } catch (error) {
+          console.error("Error getting allowance:", error);
+        }
+      }
+
+      // 委譲する
+      async function approveOkojo(amount) {
+        try {
+          const weiAmount = web3.utils.toWei(amount, "ether");
+          await okjoTokenContract.methods
+            .approve(OKJO_ARIGATO_ADDRESS, weiAmount)
+            .send({ from: userAddress });
+          await updateUI();
+        } catch (error) {
+          console.error("Error approving Okojo:", error);
+        }
+      }
+
+      // ありがとうを送る
+      async function sendArigato(to, amount, message) {
+        try {
+          const weiAmount = web3.utils.toWei(amount, "ether");
+          await okjoArigatoContract.methods
+            .sendArigato(message, to, weiAmount)
+            .send({ from: userAddress });
+          await updateUI();
+        } catch (error) {
+          console.error("Error sending Arigato:", error);
+        }
+      }
+
+      // ありがとうを取得する
+      async function getArigatoes() {
+        try {
+
+          let fromBlock = await getMaxFromBlock();
+
+          const arigatoEvents = await okjoArigatoContract.getPastEvents(
+            "Arigato",
+            {
+              filter: { receiver: userAddress },
+              fromBlock: fromBlock,
+              toBlock: "latest",
+            }
+          );
+
+          const arigatoList = document.getElementById("arigatoList");
+          arigatoList.innerHTML = `
+            <tr>
+              <th>From</th>
+              <th>Amount</th>
+              <th>Message</th>
+            </tr>
+          `;
+
+          arigatoEvents.forEach((event) => {
+            const { sender, receiver, amount, comment } = event.returnValues;
+            const newRow = arigatoList.insertRow(-1);
+            newRow.insertCell(0).innerText = sender;
+            newRow.insertCell(1).innerText = web3.utils.fromWei(
+              amount,
+              "ether"
+            );
+            newRow.insertCell(2).innerText = comment;
+          });
+        } catch (error) {
+          console.error("Error getting Arigatoes:", error);
+        }
+      }
+
+      // ログイン状態を取得する
+      async function getAccounts() {
+        try {
+          const accounts = await web3.eth.getAccounts();
+          return accounts;
+        } catch (error) {
+          console.error("Error getting accounts:", error);
+        }
+      }
+
+      // オコジョコインの残高を取得する
+      async function getOkojoBalance() {
+        try {
+          const balance = await okjoTokenContract.methods
+            .balanceOf(userAddress)
+            .call();
+          document.getElementById("okojoBalance").innerText =
+            web3.utils.fromWei(balance, "ether");
+        } catch (error) {
+          console.error("Error getting Okojo balance:", error);
+        }
+      }
+
+      // 初回読み込み時にログイン状態をチェックしてUIを更新
+      window.addEventListener("DOMContentLoaded", async () => {
+        if (await getLoginStatus()) {
+          setupEventListener();
+          document.getElementById("connectBtn").style.display = "none";
+          document.getElementById("loggedIn").style.display = "block";
+          document.getElementById("accountAddress").innerText = userAddress;
+          await updateUI();
+        }
+      });
+
+      // アカウントが切り替わったときにUIを更新
+      window.ethereum.on("accountsChanged", async (accounts) => {
+        userAddress = accounts[0];
+        document.getElementById("accountAddress").innerText = userAddress;
+        await updateUI();
+      });
+    </script>
+  </body>
+</html>
